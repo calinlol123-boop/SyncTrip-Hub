@@ -1,55 +1,19 @@
 'use server'
+
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { createClient } from "@supabase/supabase-js";
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "");
+// 1. Configurare API Key (Acceptăm ambele variante de nume)
+const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+const genAI = new GoogleGenerativeAI(apiKey);
 
+// 2. Configurare Supabase Admin (Folosim Service Role pentru a trece de RLS)
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+  process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+);
 
-
-// Baza de date de rezervă pentru Plan 
-const sugestiiRezerva: any = {
-  "PARIS": [
-    { "ora": "09:00", "descriere": "Mic dejun la o boulangerie locală" },
-    { "ora": "11:00", "descriere": "Vizită la Muzeul Luvru (Mona Lisa)" },
-    { "ora": "15:00", "descriere": "Plimbare în Grădinile Tuileries" }
-  ],
-  "LONDRA": [
-    { "ora": "10:00", "descriere": "Schimbarea gărzii la Buckingham Palace" },
-    { "ora": "13:00", "descriere": "Prânz în Borough Market" },
-    { "ora": "16:00", "descriere": "Vizită la British Museum" }
-  ],
-  "TOKYO": [
-    { "ora": "08:00", "descriere": "Piața de pește Tsukiji" },
-    { "ora": "12:00", "descriere": "Explorare cartierul Shibuya" },
-    { "ora": "18:00", "descriere": "Cină în Shinjuku Golden Gai" }
-  ]
-};
-
-
-
-// REZERVĂ BAGAJE
-const sugestiiBagajeRezerva: any = {
-  "PARIS": [
-    { obiect: "Pașaport Schengen", categorie: "DOCUMENTE" },
-    { obiect: "Adaptor priză E", categorie: "ELECTRONICE" },
-    { obiect: "Palton subțire", categorie: "VESTIMENTAȚIE" },
-    { obiect: "Pantofii comozi pentru mers", categorie: "VESTIMENTAȚIE" }
-  ],
-  "LONDRA": [
-    { obiect: "Adaptor priză UK (G)", categorie: "ELECTRONICE" },
-    { obiect: "Umbrelă / Impermeabil", categorie: "VESTIMENTAȚIE" },
-    { obiect: "Card transport Oyster", categorie: "DOCUMENTE" }
-  ],
-  "TOKYO": [
-    { obiect: "Adaptor priză Tip A", categorie: "ELECTRONICE" },
-    { obiect: "Baterie externă", categorie: "ELECTRONICE" },
-    { obiect: "Ghid de buzunar japonez", categorie: "ACCESORII UTILE" }
-  ]
-};
-
-
-
-
-// ✅ FUNCȚIE NOUĂ PENTRU VREME (Helper)
+// --- 🌦️ HELPER VREME (Portat din codul tău) ---
 async function getVremeInfo(oras: string, dataISO: string) {
   try {
     const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${oras}&count=1`);
@@ -67,91 +31,111 @@ async function getVremeInfo(oras: string, dataISO: string) {
   } catch (e) { return "vreme imprevizibilă"; }
 }
 
-
-
-
-export async function genereazaPlanAI(numeVacanta: string, dataSelectata: string, activitatiExistente: string[]) {
-  const oras = numeVacanta.toUpperCase().trim();
+// --- 📅 GENERARE PLAN AI (Cu formatare bogată și iconițe) ---
+export async function genereazaPlanAI(tripId: string, numeVacanta: string, dataSelectata: string, activitatiExistente: string[]) {
+  if (!apiKey) return { success: false, error: "Cheia API lipsește!" };
   
-  // ✅ Adăugăm contextul meteo
   const prognoza = await getVremeInfo(numeVacanta, dataSelectata);
 
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
     
     const listaRepetitii = activitatiExistente.length > 0 
-      ? `NU include următoarele activități (deja planificate): ${activitatiExistente.join(", ")}.` 
+      ? `NU include următoarele (deja planificate): ${activitatiExistente.join(", ")}.` 
       : "";
 
-    // ✅ Am inclus prognoza în prompt
-    const prompt = `Ești un ghid turistic minimalist. Generează un itinerar scurt pentru orașul ${oras}, special pentru data de ${dataSelectata}.
-    PROGNOZA METEO: ${prognoza}. 
-    IMPORTANT: Dacă plouă, prioritizează activități la interior.
+    const prompt = `Ești un ghid turistic expert. Generează un itinerar premium pentru ${numeVacanta} pe data de ${dataSelectata}.
+    PROGNOZA METEO: ${prognoza}. (Dacă plouă, prioritizează interiorul).
     ${listaRepetitii}
     
-    Vreau exact 5 elemente în listă:
-    - Primele 4 sunt activități principale cu ORE FIXE.
-    - Al 5-lea element are ora "EXTRA" și conține sugestii rapide.
+    Vreau exact 5 elemente: 4 cu ORE FIXE și al 5-lea cu ora "EXTRA".
 
-    Pentru activitățile normale, folosește EXACT acest format în descriere:
-    Titlu Activitate
-    ⏱️ [timp] | [preț]
-    💡 [info scurt]
+    FORMATARE DESCRIERE (FOARTE IMPORTANT):
+    Pentru primele 4, respectă acest format în descriere:
+    ⏱️ [timp] | 💰 [preț]
+    💡 [info scurt și interesant]
     🍴 Localuri: [Nume 1], [Nume 2]
 
     Pentru elementul EXTRA, descrierea trebuie să fie:
     Alte sugestii:
     - [Sugestie 1]
     - [Sugestie 2]
-    - [Sugestie 3]
 
-    Returnează STRICT JSON valid: [{"ora": "HH:mm sau EXTRA", "descriere": "textul formatat"}]`;
+    Returnează STRICT JSON: [{"ora": "HH:mm sau EXTRA", "titlu": "Nume Obiectiv", "descriere": "textul cu iconițe"}]`;
 
     const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    const jsonCurat = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    return JSON.parse(jsonCurat);
-  } catch (error) {
-    return [];
+    const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
+    const planAI = JSON.parse(text);
+
+    // Salvare automată
+    await supabaseAdmin.from('activitati').delete().eq('trip_id', tripId).eq('data_activitate', dataSelectata);
+    
+    const { error } = await supabaseAdmin.from('activitati').insert(
+      planAI.map((a: any) => ({
+        trip_id: tripId,
+        data_activitate: dataSelectata,
+        ora: a.ora,
+        titlu: a.titlu,
+        descriere: a.descriere
+      }))
+    );
+
+    if (error) throw error;
+    return { success: true };
+  } catch (error: any) {
+    console.error("Eroare Plan AI:", error);
+    return { success: false, error: error.message };
   }
 }
 
-
-
-
-export async function genereazaBagajAI(numeVacanta: string, dataSosire: string, numarZile: number) {
-  if (!process.env.GOOGLE_API_KEY) throw new Error("Cheia API lipsește.");
-  const data = dataSosire ? new Date(dataSosire) : new Date();
-  const luna = data.toLocaleString('ro-RO', { month: 'long' });
+// --- 🎒 GENERARE BAGAJE AI (Cu reguli stricte de cantitate) ---
+export async function genereazaBagajAI(tripId: string, numeVacanta: string, dataSosire: string, numarZile: number) {
+  if (!apiKey) return { success: false, error: "Cheia API lipsește!" };
+  
+  const luna = dataSosire ? new Date(dataSosire).toLocaleString('ro-RO', { month: 'long' }) : "curentă";
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
     const prompt = `Ești un expert în travel packing. Pentru o vacanță de ${numarZile} ZILE în ${numeVacanta} (luna ${luna}), generează o listă de minim 35 de obiecte.
     
-    REGULI DE FORMATARE (FOARTE IMPORTANT):
-    1. NU PUNE cifre sau paranteze la DOCUMENTE, ELECTRONICE, MAKE-UP sau ACCESORII UTILE (ex: scrie 'Pașaport', NU 'Pașaport (1)').
+    REGULI:
+    1. Fără cifre la DOCUMENTE, ELECTRONICE, MAKE-UP.
     2. Pune cantitatea în paranteză DOAR pentru: Lenjerie intimă, Șosete și Tricouri. (ex: 'Șosete (${numarZile} perechi)').
-    3. Pentru restul hainelor (Pantaloni, Geci, Rochii), NU pune cifre.
-    4. Categorii obligatorii: VESTIMENTATIE, IGIENA, MAKE-UP, ELECTRONICE, DOCUMENTE, ACCESORII UTILE.
+    3. Categorii: VESTIMENTATIE, IGIENA, MAKE-UP, ELECTRONICE, DOCUMENTE, ACCESORII UTILE.
 
-    Returnează DOAR array JSON: [{"obiect": "Nume curat", "categorie": "CATEGORIE"}]`;
+    Returnează DOAR array JSON: [{"obiect": "Nume", "categorie": "CATEGORIE"}]`;
 
     const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    const jsonCurat = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    return JSON.parse(jsonCurat);
-   } catch (error: any) {
-   return [
-      { obiect: "Tricouri", categorie: "VESTIMENTATIE" },
-      { obiect: "Pantaloni", categorie: "VESTIMENTATIE" },
-      { obiect: "Periuță dinți", categorie: "IGIENA" },
-      { obiect: "Mascara", categorie: "MAKE-UP" },
-      { obiect: "Încărcător", categorie: "ELECTRONICE" },
-      { obiect: "Pașaport", categorie: "DOCUMENTE" },
-      { obiect: "Umbrelă", categorie: "ACCESORII UTILE" }
-    ];
+    const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
+    const bagajeAI = JSON.parse(text);
+
+    // Salvare automată
+    await supabaseAdmin.from('bagaje').delete().eq('trip_id', tripId);
+
+    const { error } = await supabaseAdmin.from('bagaje').insert(
+      bagajeAI.map((b: any) => ({
+        trip_id: tripId,
+        obiect: b.obiect,
+        categorie: (b.categorie || "General").toUpperCase().trim(),
+        bifat: false
+      }))
+    );
+
+    if (error) throw error;
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+// --- 🗑️ ADMIN: ȘTERGERE UTILIZATOR ---
+export async function deleteUserById(userId: string) {
+  try {
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    if (error) throw error;
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
   }
 }

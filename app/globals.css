@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
+/* 1. CONFIGURAȚIA DE BAZĂ (SyncTrip Hub Premium Dark Theme) */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Slate 950 ca fundal principal */
+  --background: #020617; 
+  /* Slate 50 pentru text principal */
+  --foreground: #f8fafc;
 }
 
 @theme inline {
@@ -12,15 +15,82 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* 2. STILURI GLOBALE */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  /* Tranziție fină pentru schimbarea culorilor (Premium feel) */
+  transition: background-color 0.3s ease, color 0.3s ease;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* 3. MODUL HIGH CONTRAST (Accessibility Layer) */
+/* Când clasa .high-contrast este activă pe <html>, forțăm aceste culori */
+.high-contrast {
+  --background: #000000 !important;
+  --foreground: #ffffff !important;
+}
+
+.high-contrast body {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+/* Suprascriem fundalurile Slate cu Negru pur și borduri Galbene */
+.high-contrast .bg-slate-900,
+.high-contrast .bg-slate-950,
+.high-contrast .bg-slate-800,
+.high-contrast .bg-slate-900\/50 {
+  background-color: #000000 !important;
+  border: 2px solid #ffff00 !important;
+  background-image: none !important;
+}
+
+/* Transformăm accentele (Blue/Slate) în Galben electric pentru lizibilitate */
+.high-contrast .text-slate-500,
+.high-contrast .text-slate-400,
+.high-contrast .text-blue-500,
+.high-contrast .text-blue-600 {
+  color: #ffff00 !important;
+  text-shadow: none !important;
+}
+
+/* Butoanele devin Galbene cu text Negru (standard internațional de accesibilitate) */
+.high-contrast button.bg-blue-600,
+.high-contrast button.bg-white,
+.high-contrast .bg-blue-600 {
+  background-color: #ffff00 !important;
+  color: #000000 !important;
+  border: 2px solid #ffffff !important;
+}
+
+/* Input-urile devin ultra-vizibile */
+.high-contrast input {
+  background-color: #000000 !important;
+  border: 2px solid #ffffff !important;
+  color: #ffffff !important;
+}
+
+/* 4. SCROLLBAR PREMIUM (Custom Dark) */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #020617;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 5px;
+  border: 2px solid #020617;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* 5. UTILITARE EXTRA */
+.antialiased {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
