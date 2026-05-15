@@ -1,15 +1,18 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { createClient } from '@/utils/supabase/client' // ✅ Actualizat pentru Auth
+import { createClient } from '@/utils/supabase/client' 
 import { genereazaPlanAI } from '@/app/actions'
 import PackingList from '../../../components/PackingList'
-import DocumentVault from '../../../components/DocumentVault' // ✅ Import Nou
+import DocumentVault from '../../../components/DocumentVault' 
+import ChatSidebar from '../../../components/ChatSidebar' // ✅ Import Nou Chat
 import Link from 'next/link'
 
 export default function PaginaVacanta() {
   const params = useParams()
   const [nume, setNume] = useState('Se încarcă...')
+  const [joinCode, setJoinCode] = useState('') // ✅ Stat pentru Codul de acces
+  const [userAuth, setUserAuth] = useState<{id: string, email: string} | null>(null) // ✅ Stat pentru Auth
   const [dataSosire, setDataSosire] = useState('')
   const [numarZile, setNumarZile] = useState(1)
   const [listaDate, setListaDate] = useState<string[]>([])
@@ -19,15 +22,26 @@ export default function PaginaVacanta() {
   const [nouaOra, setNouaOra] = useState('')
   const [nouaDescriere, setNouaDescriere] = useState('')
   
-  const supabase = createClient() // ✅ Folosim clientul nou
+  const supabase = createClient() 
 
-  // ✅ STATE ACTUALIZAT CU MIN/MAX
+  // ✅ STATE ACTUALIZAT PENTRU VREME
   const [vreme, setVreme] = useState<{ temp: number; min: number; max: number; ploaie: number; hourly: any[] } | null>(null)
 
   async function incarca() {
-    const { data: v } = await supabase.from('vacante').select('nume, data_sosire, data_plecare').eq('id', params.id).single()
+    // 1. Luăm datele despre utilizator (Esențial pentru Chat)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) setUserAuth({ id: user.id, email: user.email || '' })
+
+    // 2. Luăm datele vacanței incluzând join_code
+    const { data: v } = await supabase
+      .from('vacante')
+      .select('nume, data_sosire, data_plecare, join_code')
+      .eq('id', params.id)
+      .single()
+    
     if (v) {
       setNume(v.nume)
+      setJoinCode(v.join_code) // ✅ Salvăm codul
       if (v.data_sosire && v.data_plecare) {
         setDataSosire(v.data_sosire)
         const start = new Date(v.data_sosire); const end = new Date(v.data_plecare);
@@ -37,7 +51,12 @@ export default function PaginaVacanta() {
         if (!ziSelectata) setZiSelectata(dates[0]);
       }
     }
-    const { data: act } = await supabase.from('activitati').select('*').eq('trip_id', params.id).order('ora', { ascending: true })
+
+    const { data: act } = await supabase
+        .from('activitati')
+        .select('*')
+        .eq('trip_id', params.id)
+        .order('ora', { ascending: true })
     if (act) setActivitati(act)
   }
 
@@ -82,7 +101,6 @@ export default function PaginaVacanta() {
     setLoadingAI(true);
     try {
       const vizitate = activitati.map(a => a.descriere.split('\n')[0]);
-      // Trimitem și trip_id pentru salvare automată conform noului actions.ts
       const res = await genereazaPlanAI(params.id as string, nume, ziSelectata, vizitate);
       if (res.success) {
         await incarca();
@@ -93,7 +111,16 @@ export default function PaginaVacanta() {
   return (
     <main className="min-h-screen bg-slate-950 text-white p-6 md:p-12 font-sans selection:bg-blue-500">
       <div className="max-w-7xl mx-auto">
-        <Link href="/" className="text-slate-500 hover:text-white text-[10px] tracking-widest font-black uppercase transition-colors">← DASHBOARD</Link>
+        <div className="flex justify-between items-center">
+            <Link href="/" className="text-slate-500 hover:text-white text-[10px] tracking-widest font-black uppercase transition-colors">← DASHBOARD</Link>
+            {/* ✅ Codul de acces vizibil */}
+            <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Acces Grup:</span>
+                <span className="bg-blue-600/20 text-blue-500 border border-blue-500/30 px-3 py-1 rounded-lg font-black tracking-widest text-sm uppercase">
+                    {joinCode}
+                </span>
+            </div>
+        </div>
         
         <div className="flex flex-col lg:flex-row justify-between items-start mt-8 gap-10">
           <div className="flex-1">
@@ -123,7 +150,6 @@ export default function PaginaVacanta() {
                    <p className="text-[9px] text-slate-500 font-black uppercase mt-2">Ploaie</p>
                 </div>
               </div>
-              
               <div className="flex justify-between px-1 border-t border-slate-800 pt-6">
                 {vreme.hourly.map((h, i) => (
                   <div key={i} className="flex flex-col items-center gap-3">
@@ -148,53 +174,58 @@ export default function PaginaVacanta() {
           ))}
         </div>
         
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 mt-8">
-          <section>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 mt-8">
+          
+          {/* COLOANA STANGA: ITINERAR (Col-7 pentru spatiu) */}
+          <div className="lg:col-span-7">
              <div className="flex justify-between items-center mb-10">
                <h2 className="text-3xl font-black text-white tracking-tighter uppercase italic">Itinerar</h2>
-               <button onClick={handleAI} disabled={loadingAI} className="bg-blue-600 hover:bg-blue-500 px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl active:scale-95 disabled:opacity-50">✨ PLAN AI</button>
+               <button onClick={handleAI} disabled={loadingAI} className="bg-blue-600 hover:bg-blue-500 px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl active:scale-95 disabled:opacity-50">
+                  {loadingAI ? 'GÂNDESC...' : '✨ PLAN AI'}
+               </button>
              </div>
-             <form onSubmit={adaugaManual} className="mb-10 flex gap-2 bg-slate-900 border border-slate-800 p-3 rounded-3xl shadow-inner">
-                <input placeholder="ORA" value={nouaOra} onChange={(e) => setNouaOra(e.target.value)} className="w-24 bg-slate-950 border border-slate-800 p-4 rounded-2xl text-xs font-black uppercase outline-none focus:border-blue-500" />
-                <input placeholder="PLAN MANUAL..." value={nouaDescriere} onChange={(e) => setNouaDescriere(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 p-4 rounded-2xl text-xs font-black uppercase outline-none focus:border-blue-500" />
-                <button type="submit" className="bg-slate-800 hover:bg-slate-700 px-6 rounded-2xl font-black text-xl transition-all border border-slate-700">+</button>
+             
+             <form onSubmit={adaugaManual} className="mb-10 flex gap-2 bg-slate-900 border border-slate-800 p-3 rounded-3xl">
+                <input placeholder="ORA" value={nouaOra} onChange={(e) => setNouaOra(e.target.value)} className="w-24 bg-slate-950 border border-slate-800 p-4 rounded-2xl text-xs font-black uppercase" />
+                <input placeholder="PLAN MANUAL..." value={nouaDescriere} onChange={(e) => setNouaDescriere(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 p-4 rounded-2xl text-xs font-black uppercase" />
+                <button type="submit" className="bg-slate-800 hover:bg-slate-700 px-6 rounded-2xl font-black text-xl">+</button>
              </form>
+
              <div className="space-y-8">
-                {activitati.filter(a => a.data_activitate === ziSelectata).length === 0 && (
-                  <div className="py-20 text-center border-2 border-dashed border-slate-900 rounded-[3rem]">
-                    <p className="text-slate-700 font-black uppercase text-[10px] tracking-[0.5em]">Nicio activitate planificată</p>
-                  </div>
-                )}
-                {activitati.filter(a => a.data_activitate === ziSelectata).map(a => {
-                   const isExtra = a.ora.toLowerCase() === "extra";
-                   const linii = a.descriere.split('\n'); const titlu = linii[0]; const rest = linii.slice(1).join('\n');
-                   return (
-                     <div key={a.id} className="p-8 bg-slate-900/50 border border-slate-800 rounded-[3rem] shadow-2xl hover:border-blue-500/30 transition-all relative group">
+                {activitati.filter(a => a.data_activitate === ziSelectata).map(a => (
+                     <div key={a.id} className="p-8 bg-slate-900/50 border border-slate-800 rounded-[3rem] shadow-2xl relative group transition-all hover:border-blue-500/50">
                         <div className="flex items-center gap-3 mb-6">
                           <div className="w-2.5 h-2.5 rounded-full bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.8)]"></div>
                           <span className="text-blue-500 font-black text-[10px] tracking-[0.3em] uppercase">{a.ora}</span>
                         </div>
-                        {isExtra ? (
-                          <div className="text-slate-400 text-lg whitespace-pre-line leading-relaxed font-bold italic">{a.descriere}</div>
-                        ) : (
-                          <>
-                            <h3 className="text-3xl font-black text-white mb-4 tracking-tighter leading-none uppercase italic group-hover:translate-x-2 transition-transform">{titlu}</h3>
-                            {rest && <p className="text-slate-500 text-[14px] whitespace-pre-line leading-relaxed font-bold tracking-tight">{rest}</p>}
-                          </>
-                        )}
+                        <h3 className="text-3xl font-black text-white mb-4 tracking-tighter leading-none uppercase italic">{a.titlu || a.descriere.split('\n')[0]}</h3>
+                        <p className="text-slate-500 text-[14px] whitespace-pre-line leading-relaxed font-bold">{a.titlu ? a.descriere : a.descriere.split('\n').slice(1).join('\n')}</p>
                      </div>
-                   )
-                })}
+                ))}
              </div>
-          </section>
+          </div>
 
-          {/* COLOANA DREAPTA: BAGAJE + DOCUMENT VAULT */}
-          <section className="lg:sticky lg:top-12 self-start space-y-10">
-             <PackingList tripId={params.id as string} tripName={nume} dataSosire={dataSosire} numarZile={numarZile} />
+          {/* COLOANA DREAPTA: UTILS + CHAT (Col-5) */}
+          <div className="lg:col-span-5 space-y-10 lg:sticky lg:top-8 self-start">
              
-             {/* ✅ ADAUGAT DOCUMENT VAULT AICI */}
-             <DocumentVault trip_id={params.id as string} />
-          </section>
+             {/* Componenta de CHAT */}
+             {userAuth && (
+                 <ChatSidebar 
+                    tripId={params.id as string} 
+                    userId={userAuth.id} 
+                    userName={userAuth.email.split('@')[0]} 
+                    numeVacanta={nume}
+                    dataActiva={ziSelectata} 
+                 />
+             )}
+
+             {/* Bagaje și Documente sub Chat */}
+             <div className="space-y-10 opacity-80 hover:opacity-100 transition-opacity">
+                <PackingList tripId={params.id as string} tripName={nume} dataSosire={dataSosire} numarZile={numarZile} />
+                <DocumentVault trip_id={params.id as string} />
+             </div>
+
+          </div>
         </div>
       </div>
     </main>
